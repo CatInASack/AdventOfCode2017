@@ -22,7 +22,7 @@
     <ProjectGuid>{E628558E-0283-431E-BDEF-57928D619D6E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>AdventOfCode2017</RootNamespace>
-    <WindowsTargetPlatformVersion>8.1</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.16299.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">

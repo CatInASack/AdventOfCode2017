@@ -16,3 +16,5 @@
 *.lib
 *.ipch
 *.suo
+/.vs
+*.user
