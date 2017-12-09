@@ -2,6 +2,7 @@
 #include "CppUnitTest.h"
 #include "Utilities.h"
 #include <stack>
+#include <memory>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace std;
@@ -38,17 +39,7 @@ namespace AdventOfCode2017::Day9
 
             dataStream() : score(0), garbage(0)
             {
-                history.push(new neutralState(*this));
-            }
-
-            ~dataStream()
-            {
-                while (!history.empty())
-                {
-                    auto state = history.top();
-                    history.pop();
-                    delete state;
-                }
+                history.push(shared_ptr<state>(new neutralState(*this)));
             }
 
             void process(char c)
@@ -61,7 +52,7 @@ namespace AdventOfCode2017::Day9
             int getGarbage() const { return garbage; }
 
         private:
-            stack<state*> history;
+            stack<shared_ptr<state>> history;
             int score;
             int garbage;
         };
@@ -87,16 +78,14 @@ namespace AdventOfCode2017::Day9
         protected:
             state(dataStream& stream) : myStream(stream) { }
 
-            void goToState(state* state) const
+            void goToState(state* newState) const
             {
-                myStream.history.push(state);
+                myStream.history.push(shared_ptr<state>(newState));
             }
 
             void endState() const
             {
-                auto ended = myStream.history.top();
                 myStream.history.pop();
-                delete ended;
             }
 
             void addScore() const
