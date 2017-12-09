@@ -8,6 +8,28 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 
 namespace AdventOfCode2017
 {
+    std::string ReadFile(const std::string& fileName)
+    {
+        std::string result;
+
+        std::ifstream input(fileName);
+
+        if (input.fail())
+        {
+            throw 1;
+        }
+
+        char ch;
+        input >> ch;
+        while (!input.eof())
+        {
+            result.push_back(ch);
+            input >> ch;
+        }
+
+        return result;
+    }
+
     std::vector<std::string> ReadAllLines(const std::string& fileName)
     {
         std::vector<std::string> result;
