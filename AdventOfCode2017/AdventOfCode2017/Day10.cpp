@@ -4,6 +4,7 @@
 #include <vector>
 #include <sstream>
 #include <iomanip>
+#include <numeric>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace std;
@@ -24,20 +25,33 @@ namespace AdventOfCode2017
             return digest;
         }
 
-        static string denseHash(const vector<int>& input)
+        static string denseHash(const vector<int>& rawHash)
         {
-            Assert::AreEqual(size_t(256), input.size());
+            Assert::AreEqual(size_t(16), rawHash.size());
 
             ostringstream out;
 
-            auto iter = input.begin();
-            for (auto block = 0; block < 16; block++, iter += 16)
+            for (auto iter = rawHash.begin(); iter != rawHash.end(); iter++)
             {
-                auto blockDigest = digestBlock(iter);
-                out << hex << setfill('0') << setw(2) << blockDigest;
+                out << hex << setfill('0') << setw(2) << *iter;
             }
 
             return out.str();
+        }
+
+        static vector<int> denseHashRaw(const vector<int>& input)
+        {
+            Assert::AreEqual(size_t(256), input.size());
+
+            vector<int> result;
+            auto iter = input.begin();
+
+            for (auto block = 0; block < 16; block++, iter += 16)
+            {
+                result.push_back(digestBlock(iter));
+            }
+
+            return result;
         }
 
         static vector<int> stringBytes(const string& input)
@@ -101,7 +115,7 @@ namespace AdventOfCode2017
             }
         };
 
-        static string digestString(const string& input)
+        static vector<int> digestStringRaw(const string& input)
         {
             knots<256> knots;
             auto key = makeKey(input);
@@ -114,9 +128,121 @@ namespace AdventOfCode2017
                 }
             }
 
-            auto marks = knots.getMarks();
+            auto rawHash = denseHashRaw(knots.getMarks());
+            return rawHash;
+        }
 
-            return denseHash(marks);
+        static string digestString(const string& input)
+        {
+            return denseHash(digestStringRaw(input));
+        }
+
+        static int countBlocks(const string& input)
+        {
+            auto count = 0;
+            for (auto row = 0; row < 128; row++)
+            {
+                auto rowKey = input + "-" + to_string(row);
+                auto blocks = digestStringRaw(rowKey);
+                count = accumulate(
+                    blocks.begin(),
+                    blocks.end(),
+                    count,
+                    [](int rowTotal, int block)
+                    {
+                        auto innerCount = 0;
+                        while (block)
+                        {
+                            innerCount += block % 2;
+                            block >>= 1;
+                        }
+                        return rowTotal + innerCount;
+                    });
+            }
+            return count;
+        }
+
+        template<typename ValueType>
+        static ValueType valueAt(const vector<vector<ValueType>>& cells, int x, int y, ValueType defaultValue)
+        {
+            if (x >= 0 &&
+                y >= 0 && 
+                size_t(y) < cells.size() &&
+                size_t(x) < cells.at(y).size()
+                )
+            {
+                return cells.at(y).at(x);
+            }
+
+            return defaultValue;
+        }
+
+        static vector<bool> unpack(const vector<int>& blocks)
+        {
+            Assert::AreEqual(size_t(16), blocks.size());
+
+            vector<bool> result(128, false);
+            auto column = 0;
+
+            for (auto iter = blocks.begin(); iter < blocks.end(); iter++)
+            {
+                auto block = *iter;
+                column += 8;
+
+                for (auto bit = 0; bit < 8; bit++)
+                {
+                    result[column - bit - 1] = block % 2;
+                    block >>= 1;
+                }
+            }
+
+            Assert::AreEqual(size_t(128), result.size());
+
+            return result;
+        }
+
+        static bool flood(vector<vector<int>>& colors, const vector<vector<bool>>& cells, int x, int y, int color)
+        {
+            if (valueAt(cells, x, y, false) && valueAt(colors, x, y, -1) == -1)
+            {
+                colors[y][x] = color;
+                flood(colors, cells, x - 1, y,      color);
+                flood(colors, cells, x,     y - 1,  color);
+                flood(colors, cells, x + 1, y,      color);
+                flood(colors, cells, x,     y + 1,  color);
+                return true;
+            }
+
+            return false;
+        }
+
+        static pair<int, vector<vector<int>>> colorBlocks(const string& input)
+        {
+            auto count = 0;
+            vector<vector<bool>> blockMap;
+            blockMap.reserve(128);
+
+            for (auto row = 0; row < 128; row++)
+            {
+                auto rowKey = input + "-" + to_string(row);
+                auto blocks = digestStringRaw(rowKey);
+                blockMap.push_back(unpack(blocks));
+            }
+
+            vector<vector<int>> colors(128, vector<int>(128, -1));
+
+            for (auto row = 0; row < 128; row++)
+            {
+                for (auto column = 0; column < 128; column++)
+                {
+                    if (flood(colors, blockMap, column, row, count + 1))
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return make_pair(count, colors);
         }
 
     public:
@@ -309,6 +435,28 @@ namespace AdventOfCode2017
         TEST_METHOD(Day10_2_Final)
         {
             Assert::AreEqual("90adb097dd55dea8305c900372258ac6"s, digestString("183,0,31,146,254,240,223,150,2,206,161,1,255,232,199,88"s));
+        }
+
+        TEST_METHOD(Day14_1_Test1)
+        {
+            Assert::AreEqual(8108, countBlocks("flqrgnkx"s));
+        }
+
+        TEST_METHOD(Day14_1_Final)
+        {
+            Assert::AreEqual(8194, countBlocks("uugsqrei"s));
+        }
+
+        TEST_METHOD(Day14_2_Test1)
+        {
+            auto result = colorBlocks("flqrgnkx"s);
+            Assert::AreEqual(1242, result.first);
+        }
+
+        TEST_METHOD(Day14_2_Final)
+        {
+            auto result = colorBlocks("uugsqrei"s);
+            Assert::AreEqual(1141, result.first);
         }
     };
 }
