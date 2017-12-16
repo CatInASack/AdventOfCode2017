@@ -19,3 +19,5 @@
 /.vs
 *.user
 *.enc
+*.iobj
+*.ipdb
