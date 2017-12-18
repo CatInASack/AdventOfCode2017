@@ -19,17 +19,37 @@ namespace AdventOfCode2017
 
             size_t pos = 0;
 
-            for (auto currentIteration = 0; currentIteration < iterations; currentIteration++)
+            for (auto currentIteration = 1; currentIteration <= iterations; currentIteration++)
             {
                 pos = (pos + step) % data.size();
                 pos = (pos + 1) % (data.size() + 1);
 
                 auto insertionPoint = pos >= data.size() ? data.end() : data.begin() + pos;
 
-                data.insert(insertionPoint, currentIteration + 1);
+                data.insert(insertionPoint, currentIteration);
             }
 
             return make_pair(pos, data);
+        }
+
+        int findSecondElement(int iterations, int step)
+        {
+            size_t pos = 0;
+            size_t size = 1;
+            auto second = 0;
+
+            for (auto currentIteration = 1; currentIteration <= iterations; currentIteration++)
+            {
+                pos = (pos + step) % size;
+                pos = (pos + 1) % ++size;
+
+                if (pos == 1)
+                {
+                    second = currentIteration;
+                }
+            }
+
+            return second;
         }
 
     public:
@@ -79,12 +99,15 @@ namespace AdventOfCode2017
             Assert::AreEqual(808, result.second[(result.first + 1) % result.second.size()]);
         }
 
-        //TEST_METHOD(Day17_2_Final)
-        //{
-        //    auto result = insert(50000000, 356);
-        //    Assert::AreEqual(1024u, result.first);
-        //    Assert::AreEqual(2018u, result.second.size());
-        //    Assert::AreEqual(808, result.second[(result.first + 1) % result.second.size()]);
-        //}
+        TEST_METHOD(Day17_2_Test1)
+        {
+            Assert::AreEqual(2, findSecondElement(3, 3));
+            Assert::AreEqual(931, findSecondElement(2017, 356));
+        }
+
+        TEST_METHOD(Day17_2_Final)
+        {
+            Assert::AreEqual(47465686, findSecondElement(50000000, 356));
+        }
     };
 }
