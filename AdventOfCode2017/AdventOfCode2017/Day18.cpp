@@ -6,6 +6,7 @@
 #include <cctype>
 #include <sstream>
 #include <iostream>
+#include <deque>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace std;
@@ -136,49 +137,45 @@ namespace AdventOfCode2017
                 return instruction(opCodes[opCode], reference::makeReference(operandA), reference::makeReference(operandB));
             }
 
-            static map<char, int64_t> runProgram(const vector<string>& program)
-            {
-                vector<instruction> instructions;
-                for_each(program.begin(), program.end(), [&instructions](const string& instr) { instructions.push_back(instruction::parseInstruction(instr)); });
-
-                auto pc = size_t(0);
-
-                map<char, int64_t> registers;
-                while (registers['^'] == 0)
-                {
-                    registers['#']++;
-                    pc += instructions[pc].execute(registers);
-                }
-
-                registers['@'] = pc;
-
-                return registers;
-            }
-
             opCode getOpCode() const { return operation; }
 
             const reference& getOperandA() const { return operandA; }
 
             const reference& getOperandB() const { return operandB; }
+        };
 
-            void printLog(const map<char, int64_t>& registers) const
+        class core
+        {
+        protected:
+            vector<instruction> program;
+            map<char, int64_t> registers;
+            bool halted;
+
+        public:
+            static const char pcRegName = '@';
+            static const char rcvRegName = '^';
+            static const char sndRegName = '$';
+            static const char sentCountRegName = '~';
+
+            core(const vector<instruction>& p) : program(p), halted(false)
             {
-                log << find_if(opCodes.begin(), opCodes.end(), [this](const pair<string, opCode>& entry) { return entry.second == operation; })->first;
-                operandA.printLog(registers);
-                operandB.printLog(registers);
+                registers[pcRegName] = 0;
             }
 
-            int execute(map<char, int64_t>& registers) const
+            virtual int64_t executeInstruction(const instruction& instr)
             {
-                printLog(registers);
+                auto operation = instr.getOpCode();
+                auto& operandA = instr.getOperandA();
+                auto& operandB = instr.getOperandB();
 
-                auto pcOffset = 1;
+                log << find_if(opCodes.begin(), opCodes.end(), [operation](const pair<string, opCode>& entry) { return entry.second == operation; })->first;
+                operandA.printLog(registers);
+                operandB.printLog(registers);
+
+                auto pcOffset = 1i64;
 
                 switch (operation)
                 {
-                case snd:
-                    registers['$'] = operandA.resolve(registers);
-                    break;
                 case set:
                     registers[operandA.registerName] = operandB.resolve(registers);
                     break;
@@ -191,16 +188,20 @@ namespace AdventOfCode2017
                 case mod:
                     registers[operandA.registerName] %= operandB.resolve(registers);
                     break;
+                case snd:
+                    registers[sndRegName] = operandA.resolve(registers);
+                    break;
                 case rcv:
                     if (operandA.resolve(registers) != 0)
                     {
-                        registers['^'] = registers['$'];
+                        registers[rcvRegName] = registers[sndRegName];
+                        halt();
                     }
                     break;
                 case jgz:
                     if (operandA.resolve(registers) > 0)
                     {
-                        pcOffset = static_cast<int>(operandB.resolve(registers));
+                        pcOffset = operandB.resolve(registers);
                     }
                     break;
                 }
@@ -210,17 +211,165 @@ namespace AdventOfCode2017
                     registers.begin(),
                     registers.end(),
                     [](const pair<char, int64_t>& reg)
-                    {
-                        log << " [" << reg.first << "=" << reg.second << "]";
-                    }
-                    );
+                {
+                    log << " [" << reg.first << "=" << reg.second << "]";
+                }
+                );
                 log << endl;
+
+                return pcOffset;
+            }
+
+            void executeInstruction()
+            {
+                registers[pcRegName] += executeInstruction(program[static_cast<size_t>(registers[pcRegName])]);
+            }
+
+            void halt()
+            {
+                halted = true;
+            }
+
+            bool isHalted() const
+            {
+                return halted ||
+                    registers.at(pcRegName) < 0 ||
+                    registers.at(pcRegName) >= static_cast<int64_t>(program.size());
+            }
+
+            map<char, int64_t> copyRegisters() const
+            {
+                return registers;
+            }
+
+            map<char, int64_t> runProgram()
+            {
+                while (!isHalted())
+                {
+                    executeInstruction();
+                }
+
+                return copyRegisters();
+            }
+        };
+
+        class bus
+        {
+        private:
+            deque<int64_t> queue[2];
+            int starved;
+
+        public:
+            bus() : starved(0) { }
+
+            void unstarve()
+            {
+                starved = 0;
+            }
+
+            int getStarved() const { return starved; }
+
+            void send(int source, int64_t value)
+            {
+                queue[(source + 1) % 2].push_back(value);
+            }
+
+            pair<bool, int64_t> receive(int destination)
+            {
+                if (queue[destination].empty())
+                {
+                    starved++;
+                    return make_pair(false, 0);
+                }
+                else
+                {
+                    auto value = queue[destination].front();
+                    queue[destination].pop_front();
+                    return make_pair(true, value);
+                }
+            }
+        };
+
+        class multiCore : public core
+        {
+        private:
+            bus& myBus;
+            int myId;
+        public:
+            multiCore(int id, bus& theBus, const vector<instruction>& program) : core(program), myId(id), myBus(theBus)
+            {
+                registers['p'] = myId;
+            }
+
+            virtual int64_t executeInstruction(const instruction& instr) override
+            {
+                auto pcOffset = 1i64;
+                auto operation = instr.getOpCode();
+
+                switch (operation)
+                {
+                case snd:
+                    registers[sentCountRegName]++;
+                    myBus.send(myId, instr.getOperandA().resolve(registers));
+                    break;
+                case rcv:
+                    {
+                        auto result = myBus.receive(myId);
+                        if (result.first)
+                        {
+                            registers[instr.getOperandA().registerName] = result.second;
+                        }
+                        else
+                        {
+                            pcOffset = 0;
+                        }
+                    }
+                    break;
+                default:
+                    pcOffset = core::executeInstruction(instr);
+                    break;
+                }
 
                 return pcOffset;
             }
         };
 
+        vector<map<char, int64_t>> runMulticore(const vector<instruction>& program)
+        {
+            bus theBus;
+            vector<multiCore>cores =
+            {
+                multiCore(0, theBus, program),
+                multiCore(1, theBus, program),
+            };
+
+            while (any_of(cores.begin(), cores.end(), [](const core& aCore) { return !aCore.isHalted(); }))
+            {
+                theBus.unstarve();
+
+                for_each(cores.begin(), cores.end(), [](core& aCore) { aCore.executeInstruction(); });
+
+                if (theBus.getStarved() == cores.size())
+                {
+                    for_each(cores.begin(), cores.end(), [](core& aCore) { aCore.halt(); });
+                }
+            }
+
+            vector<map<char, int64_t>> result;
+            for_each(cores.begin(), cores.end(), [&result](const core& aCore) { result.push_back(aCore.copyRegisters()); });
+
+            return result;
+        }
+
+        static vector<instruction> makeProgram(const vector<string>& input)
+        {
+            vector<instruction> instructions;
+            for_each(input.begin(), input.end(), [&instructions](const string& instr) { instructions.push_back(instruction::parseInstruction(instr)); });
+            return instructions;
+        }
+
         static vector<string> exampleInput;
+        static vector<string> exampleInput2;
         static vector<string> finalInput;
 
     public:
@@ -256,16 +405,44 @@ namespace AdventOfCode2017
 
         TEST_METHOD(Day18_1_Test2)
         {
-            auto registers = instruction::runProgram(exampleInput);
-            Assert::AreEqual(4, static_cast<int>(registers['^']));
-            Assert::AreEqual(12, static_cast<int>(registers['#']));
+            auto registers = core(makeProgram(exampleInput)).runProgram();
+            Assert::AreEqual(4, static_cast<int>(registers[core::rcvRegName]));
         }
 
         TEST_METHOD(Day18_1_Final)
         {
-            auto registers = instruction::runProgram(finalInput);
+            auto registers = core(makeProgram(finalInput)).runProgram();
             auto logContents = log.str();
-            Assert::AreEqual(8600, static_cast<int>(registers['^']));
+            Assert::AreEqual(8600, static_cast<int>(registers[core::rcvRegName]));
+        }
+
+        TEST_METHOD(Day18_2_Test1)
+        {
+            auto result = runMulticore(makeProgram(exampleInput2));
+
+            Assert::AreEqual(2u, result.size(), L"Result size");
+
+            Assert::AreEqual(6u, result[0].size(), L"Registers count 0");
+            Assert::AreEqual(6, static_cast<int>(result[0][core::pcRegName]), L"PC 0");
+            Assert::AreEqual(3, static_cast<int>(result[0][core::sentCountRegName]), L"Send count 0");
+            Assert::AreEqual(0, static_cast<int>(result[0]['p']), L"Regs[p] 0");
+            Assert::AreEqual(1, static_cast<int>(result[0]['a']), L"Regs[a] 0");
+            Assert::AreEqual(2, static_cast<int>(result[0]['b']), L"Regs[b] 0");
+            Assert::AreEqual(1, static_cast<int>(result[0]['c']), L"Regs[c] 0");
+
+            Assert::AreEqual(6u, result[1].size(), L"Registers count 1");
+            Assert::AreEqual(6, static_cast<int>(result[1][core::pcRegName]), L"PC 1");
+            Assert::AreEqual(3, static_cast<int>(result[1][core::sentCountRegName]), L"Send count 1");
+            Assert::AreEqual(1, static_cast<int>(result[1]['p']), L"Regs[p] 1");
+            Assert::AreEqual(1, static_cast<int>(result[1]['a']), L"Regs[a] 1");
+            Assert::AreEqual(2, static_cast<int>(result[1]['b']), L"Regs[b] 1");
+            Assert::AreEqual(0, static_cast<int>(result[1]['c']), L"Regs[c] 1");
+        }
+
+        TEST_METHOD(Day18_2_Final)
+        {
+            auto result = runMulticore(makeProgram(finalInput));
+            Assert::AreEqual(7239, static_cast<int>(result[1][core::sentCountRegName]));
         }
     };
 
@@ -283,6 +460,17 @@ namespace AdventOfCode2017
         "jgz a -1"s,
         "set a 1"s,
         "jgz a -2"s,
+    };
+
+    vector<string> Day18::exampleInput2 =
+    {
+        "snd 1"s,
+        "snd 2"s,
+        "snd p"s,
+        "rcv a"s,
+        "rcv b"s,
+        "rcv c"s,
+        "rcv d"s,
     };
 
     vector<string> Day18::finalInput =
